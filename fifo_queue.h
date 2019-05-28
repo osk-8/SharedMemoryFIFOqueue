@@ -1,73 +1,144 @@
 #pragma once
 
-#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
-#define PATHNAME "./fifo_queue.c"
-#define PROJ_ID "O"
 #define QUEUE_CAPACITY 100
 
 struct Queue
 {
-    size_t front, rear, size;
-    void *data[QUEUE_CAPACITY];
+    struct
+    {
+        size_t bucket_capacity;
+        int bucket_to_read;
+        int first_bucket_front;
+        int second_bucket_front;
+        int first_bucket_rear;
+        int second_bucket_rear;
+        int first_bucket_size;
+        int second_bucket_size;
+    } header;
+
+    int first_bucket[QUEUE_CAPACITY];
+    int second_bucket[QUEUE_CAPACITY];
 };
 
-struct Queue *createQueue(const char *pathname, const char *proj_id)
+struct Queue *createQueue(const char *name)
 {
-    key_t key;
-    int shmid;
-    key = ftok(pathname, proj_id);
-    shmid = shmget(key, sizeof(struct Queue), 0644 | IPC_CREAT);
+    int shm_fd;
+    struct Queue *queue;
 
-    struct Queue *queue = shmat(shmid, (void *)0, 0);
-    queue->front = 0;
-    queue->rear = QUEUE_CAPACITY - 1;
-    queue->size = 0;
+    if ((shm_fd = shm_open(name, O_CREAT | O_EXCL | O_RDWR, 0666)) == -1)
+    {
+        perror("shm_open");
+        exit(EXIT_FAILURE);
+    }
+
+    if (ftruncate(shm_fd, sizeof(struct Queue)) == -1)
+    {
+        perror("ftruncate");
+        exit(EXIT_FAILURE);
+    }
+
+    if ((queue = mmap(0, sizeof(struct Queue), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0)) == (struct Queue *)(-1))
+    {
+        perror("mmap");
+        exit(EXIT_FAILURE);
+    }
+
+    queue->header.bucket_capacity = QUEUE_CAPACITY;
+    queue->header.bucket_to_read = 1;
+    queue->header.first_bucket_front = 0;
+    queue->header.second_bucket_front = 0;
+    queue->header.first_bucket_rear = 0;
+    queue->header.second_bucket_rear = 0;
+    queue->header.first_bucket_size = 0;
+    queue->header.second_bucket_size = 0;
 
     return queue;
 }
 
-struct Queue *getQueue(const char *pathname, const char *proj_id)
+struct Queue *getQueue(const char *name)
 {
-    key_t key;
-    int shmid;
-    key = ftok(pathname, proj_id);
-    shmid = shmget(key, sizeof(struct Queue), 0644);
+    int shm_fd;
+    struct Queue *queue;
 
-    struct Queue *queue = shmat(shmid, (void *)0, 0);
+    if ((shm_fd = shm_open(name, O_RDWR, 0666)) == -1)
+    {
+        perror("shm_open");
+        exit(EXIT_FAILURE);
+    }
+
+    if (ftruncate(shm_fd, sizeof(struct Queue)) == -1)
+    {
+        perror("ftruncate");
+        exit(EXIT_FAILURE);
+    }
+
+    if ((queue = mmap(0, sizeof(struct Queue), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0)) == (struct Queue *)(-1))
+    {
+        perror("mmap");
+        exit(EXIT_FAILURE);
+    }
+
     return queue;
 }
 
-int isFull(struct Queue *queue)
+void enqueue(struct Queue *queue, int item)
 {
-    return (queue->size == QUEUE_CAPACITY);
+    if (queue->header.bucket_to_read == 1)
+    {
+        queue->second_bucket[queue->header.second_bucket_rear] = item;
+        queue->header.second_bucket_rear = (queue->header.second_bucket_rear + 1) % queue->header.bucket_capacity;
+        queue->header.second_bucket_size++;
+    }
+    else
+    {
+        queue->first_bucket[queue->header.first_bucket_rear] = item;
+        queue->header.first_bucket_rear = (queue->header.first_bucket_rear + 1) % queue->header.bucket_capacity;
+        queue->header.first_bucket_size++;
+    }
 }
 
-int isEmpty(struct Queue *queue)
+int dequeue(struct Queue *queue)
 {
-    return (queue->size == 0);
-}
+    int item;
 
-void enqueue(struct Queue *queue, void *item)
-{
-    if (isFull(queue))
-        return;
+    if (!queue->header.first_bucket_size && !queue->header.second_bucket_size)
+    {
+        printf("Queue is empty!");
+        exit(EXIT_FAILURE);
+    }
 
-    queue->rear = (queue->rear + 1) % QUEUE_CAPACITY;
-    queue->data[queue->rear] = item;
-    queue->size += 1;
-}
+    if (queue->header.bucket_to_read == 1 && !queue->header.first_bucket_size)
+        queue->header.bucket_to_read = 2;
+    else if (queue->header.bucket_to_read == 2 && !queue->header.second_bucket_size)
+        queue->header.bucket_to_read = 1;
 
-void *dequeue(struct Queue *queue)
-{
-    if (isEmpty(queue))
-        return;
+    if (queue->header.bucket_to_read == 1)
+    {
+        item = queue->first_bucket[queue->header.first_bucket_front];
+        queue->header.first_bucket_front++;
+    }
+    else
+    {
+        item = queue->second_bucket[queue->header.second_bucket_front];
+        queue->header.second_bucket_front++;
+    }
 
-    void *item = queue->data[queue->front];
-    queue->front = (queue->front + 1) % QUEUE_CAPACITY;
-    queue->size -= 1;
     return item;
+}
+
+void rmFifoQueue(const char *name)
+{
+    if (shm_unlink(name) == -1)
+    {
+        perror("shm_unlink");
+        exit(EXIT_FAILURE);
+    }
 }

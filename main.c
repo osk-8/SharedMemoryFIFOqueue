@@ -1,27 +1,24 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <semaphore.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 #include "fifo_queue.h"
 
 int main()
 {
-    printf("Create queue\n");
-    struct Queue *queue = createQueue(PATHNAME, PROJ_ID);
+    struct Queue *queue = createQueue("my_queue");
 
-    enqueue(queue, (void *)10);
-    enqueue(queue, (void *)20);
-    enqueue(queue, (void *)30);
-    enqueue(queue, (void *)40);
-    enqueue(queue, (void *)"Test");
+    enqueue(queue, 0);
+    enqueue(queue, 100);
+    enqueue(queue, 250);
+    enqueue(queue, 500);
 
-    printf("Dequeue value: %d\n", (int)dequeue(queue));
-    printf("Dequeue value: %d\n", (int)dequeue(queue));
-    printf("Dequeue value: %d\n", (int)dequeue(queue));
-    printf("Dequeue value: %d\n", (int)dequeue(queue));
-    printf("Dequeue value: %s\n", (char *)dequeue(queue));
-
-    printf("Size of queue: %d - should be 0\n", queue->size);
-
-    shmdt(queue);
     exit(EXIT_SUCCESS);
 }
+
+// #define SEM_NAME "/mysem"
+//     sem_t *sem = sem_open(SEM_NAME, O_CREAT | O_EXCL, 0777, 1);
+//     sem_wait(sem);
+//     sem_post(sem);

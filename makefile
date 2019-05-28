@@ -1,5 +1,5 @@
 TARGET = main
-LIBS = 
+LIBS = -lrt -pthread
 CC = gcc
 CFLAGS = -g -Wall
 
