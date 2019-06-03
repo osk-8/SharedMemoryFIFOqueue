@@ -27,7 +27,8 @@ struct Queue
     struct
     {
         size_t bucket_capacity;
-        enum segment_to_read seg_to_read; //TO DO: should be enum
+        enum segment_to_read seg_to_read;
+
         int data_seg_front[2];
         int data_seg_rear[2];
         size_t data_seg_size[2];
@@ -183,22 +184,13 @@ void enqueue(struct Queue *queue, void *item, size_t mem_size)
         }
     }
 
-    if (queue->header.seg_to_read == first_segment)
-    {
-        sem_wait(queue->sem[1]);
-        memcpy(queue->data_seg[1] + queue->header.data_seg_rear[1], item, mem_size);
-        queue->header.data_seg_rear[1] = (queue->header.data_seg_rear[1] + MEM_CHUNK) % queue->header.bucket_capacity;
-        queue->header.data_seg_size[1]++;
-        sem_post(queue->sem[1]);
-    }
-    else
-    {
-        sem_wait(queue->sem[0]);
-        memcpy(queue->data_seg[0] + queue->header.data_seg_rear[0], item, mem_size);
-        queue->header.data_seg_rear[0] = (queue->header.data_seg_rear[0] + MEM_CHUNK) % queue->header.bucket_capacity;
-        queue->header.data_seg_size[0]++;
-        sem_post(queue->sem[0]);
-    }
+    int index = !queue->header.seg_to_read;
+
+    sem_wait(queue->sem[index]);
+    memcpy(queue->data_seg[index] + queue->header.data_seg_rear[index], item, mem_size);
+    queue->header.data_seg_rear[index] = (queue->header.data_seg_rear[index] + MEM_CHUNK) % queue->header.bucket_capacity;
+    queue->header.data_seg_size[index]++;
+    sem_post(queue->sem[index]);
 }
 
 void *dequeue(struct Queue *queue)
@@ -216,22 +208,13 @@ void *dequeue(struct Queue *queue)
     else if (queue->header.seg_to_read == second_segment && !queue->header.data_seg_size[1])
         queue->header.seg_to_read = first_segment;
 
-    if (queue->header.seg_to_read == first_segment)
-    {
-        sem_wait(queue->sem[0]);
-        ptr = queue->data_seg[0] + queue->header.data_seg_front[0];
-        queue->header.data_seg_front[0] = (queue->header.data_seg_front[0] + MEM_CHUNK) % queue->header.bucket_capacity;
-        queue->header.data_seg_size[0]--;
-        sem_post(queue->sem[0]);
-    }
-    else
-    {
-        sem_wait(queue->sem[1]);
-        ptr = queue->data_seg[1] + queue->header.data_seg_front[1];
-        queue->header.data_seg_front[1] = (queue->header.data_seg_front[1] + MEM_CHUNK) % queue->header.bucket_capacity;
-        queue->header.data_seg_size[1]--;
-        sem_post(queue->sem[1]);
-    }
+    int index = queue->header.seg_to_read;
+
+    sem_wait(queue->sem[index]);
+    ptr = queue->data_seg[index] + queue->header.data_seg_front[index];
+    queue->header.data_seg_front[index] = (queue->header.data_seg_front[index] + MEM_CHUNK) % queue->header.bucket_capacity;
+    queue->header.data_seg_size[index]--;
+    sem_post(queue->sem[index]);
 
     return ptr;
 }
