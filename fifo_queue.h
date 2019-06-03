@@ -10,25 +10,28 @@
 #include <fcntl.h>
 #include <semaphore.h>
 
-#define BUCKET_SIZE 1024
-#define MEM_CHUNK 24
+#define BUCKET_SIZE 1024 //TO DO: delete that
+#define MEM_CHUNK 24     //TO DO: delete that
 
-enum segment_to_read
-{
-    first_segment,
-    second_segment
-};
-
+struct Queue *create_queue(const char *name);
+struct Queue *get_queue(const char *name);
 void *get_data_segment(const char *name, const size_t size);
+void enqueue(struct Queue *queue, void *item, size_t mem_size);
+void *dequeue(struct Queue *queue);
+void rm_queue(const char *name);
 char *concat_strings(char *dest, const char *a, const char *b);
 
 struct Queue
 {
     struct
     {
-        size_t bucket_capacity;
-        enum segment_to_read seg_to_read;
+        enum
+        {
+            first_segment,
+            second_segment
+        } seg_to_read;
 
+        size_t bucket_capacity; //TO DO: change name
         int data_seg_front[2];
         int data_seg_rear[2];
         size_t data_seg_size[2];
@@ -169,20 +172,17 @@ void *get_data_segment(const char *name, const size_t size)
 
 void enqueue(struct Queue *queue, void *item, size_t mem_size)
 {
-    if (queue->header.seg_to_read == first_segment)
-    {
-        if (queue->header.data_seg_size[1] && (queue->header.data_seg_front[1] == queue->header.data_seg_rear[1]))
-        {
-            //SEMAPHORE IN ACTION  [is full] -> [wait for swap in dequeue]
-        }
-    }
-    else
-    {
-        if (queue->header.data_seg_size[0] && (queue->header.data_seg_front[0] == queue->header.data_seg_rear[0]))
-        {
-            //SEMAPHORE IN ACTION
-        }
-    }
+    //if !seg_to_read is full
+    //  if seg_to_read is not empty
+    //      wait
+
+    // int seg_to_write = !queue->header.seg_to_read;
+
+    // if (queue->header.data_seg_size[seg_to_write] && queue->header.data_seg_front[seg_to_write] == queue->header.data_seg_rear[seg_to_write])
+    //     if (queue->header.data_seg_size[queue->header.seg_to_read])
+    //     {
+    //wait
+    // }
 
     int index = !queue->header.seg_to_read;
 
@@ -197,16 +197,15 @@ void *dequeue(struct Queue *queue)
 {
     void *ptr;
 
+    //should wait for product
     if (!queue->header.data_seg_size[0] && !queue->header.data_seg_size[1])
     {
         printf("Queue is empty!");
         exit(EXIT_FAILURE);
     }
 
-    if (queue->header.seg_to_read == first_segment && !queue->header.data_seg_size[0])
-        queue->header.seg_to_read = second_segment;
-    else if (queue->header.seg_to_read == second_segment && !queue->header.data_seg_size[1])
-        queue->header.seg_to_read = first_segment;
+    if (!queue->header.data_seg_size[queue->header.seg_to_read])
+        queue->header.seg_to_read = !queue->header.seg_to_read;
 
     int index = queue->header.seg_to_read;
 
