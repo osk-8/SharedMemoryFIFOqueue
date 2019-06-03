@@ -13,6 +13,12 @@
 #define BUCKET_SIZE 1024
 #define MEM_CHUNK 24
 
+enum segment_to_read
+{
+    first_segment,
+    second_segment
+};
+
 void *get_data_segment(const char *name, const size_t size);
 char *concat_strings(char *dest, const char *a, const char *b);
 
@@ -21,7 +27,7 @@ struct Queue
     struct
     {
         size_t bucket_capacity;
-        int bucket_to_read; //TO DO: should be enum
+        enum segment_to_read seg_to_read; //TO DO: should be enum
         int data_seg_front[2];
         int data_seg_rear[2];
         size_t data_seg_size[2];
@@ -74,7 +80,7 @@ struct Queue *create_queue(const char *name)
     queue->data_seg[1] = get_data_segment(concat_strings(name_string, "bucket2_", name), BUCKET_SIZE);
 
     queue->header.bucket_capacity = BUCKET_SIZE;
-    queue->header.bucket_to_read = 1;
+    queue->header.seg_to_read = first_segment;
     queue->header.data_seg_front[0] = queue->header.data_seg_front[1] = 0;
     queue->header.data_seg_rear[0] = queue->header.data_seg_rear[1] = 0;
     queue->header.data_seg_size[0] = queue->header.data_seg_size[1] = 0;
@@ -162,7 +168,7 @@ void *get_data_segment(const char *name, const size_t size)
 
 void enqueue(struct Queue *queue, void *item, size_t mem_size)
 {
-    if (queue->header.bucket_to_read == 1)
+    if (queue->header.seg_to_read == first_segment)
     {
         if (queue->header.data_seg_size[1] && (queue->header.data_seg_front[1] == queue->header.data_seg_rear[1]))
         {
@@ -177,7 +183,7 @@ void enqueue(struct Queue *queue, void *item, size_t mem_size)
         }
     }
 
-    if (queue->header.bucket_to_read == 1)
+    if (queue->header.seg_to_read == first_segment)
     {
         sem_wait(queue->sem[1]);
         memcpy(queue->data_seg[1] + queue->header.data_seg_rear[1], item, mem_size);
@@ -205,12 +211,12 @@ void *dequeue(struct Queue *queue)
         exit(EXIT_FAILURE);
     }
 
-    if (queue->header.bucket_to_read == 1 && !queue->header.data_seg_size[0])
-        queue->header.bucket_to_read = 2;
-    else if (queue->header.bucket_to_read == 2 && !queue->header.data_seg_size[1])
-        queue->header.bucket_to_read = 1;
+    if (queue->header.seg_to_read == first_segment && !queue->header.data_seg_size[0])
+        queue->header.seg_to_read = second_segment;
+    else if (queue->header.seg_to_read == second_segment && !queue->header.data_seg_size[1])
+        queue->header.seg_to_read = first_segment;
 
-    if (queue->header.bucket_to_read == 1)
+    if (queue->header.seg_to_read == first_segment)
     {
         sem_wait(queue->sem[0]);
         ptr = queue->data_seg[0] + queue->header.data_seg_front[0];
@@ -254,7 +260,7 @@ void rm_queue(const char *name)
 
     if (sem_unlink(concat_strings(name_string, "sem2_", name)) == -1)
     {
-        perror("sem_unlink");
+        perror("sem_unlink  ");
         exit(EXIT_FAILURE);
     }
 
