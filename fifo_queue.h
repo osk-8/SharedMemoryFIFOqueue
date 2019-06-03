@@ -22,16 +22,13 @@ struct Queue
     {
         size_t bucket_capacity;
         int bucket_to_read; //TO DO: should be enum
-        int bucket1_front, bucket2_front;
-        int bucket1_rear, bucket2_rear;
-        size_t bucket1_size, bucket2_size;
+        int data_seg_front[2];
+        int data_seg_rear[2];
+        size_t data_seg_size[2];
     } header;
 
-    sem_t *sem1;
-    sem_t *sem2;
-
-    void *bucket1;
-    void *bucket2;
+    sem_t *sem[2];
+    void *data_seg[2];
 };
 
 struct Queue *create_queue(const char *name)
@@ -60,27 +57,27 @@ struct Queue *create_queue(const char *name)
         exit(EXIT_FAILURE);
     }
 
-    queue->sem1 = sem_open(concat_strings(name_string, "sem1_", name), O_CREAT, 0666, 1);
-    if (queue->sem1 == SEM_FAILED)
+    queue->sem[0] = sem_open(concat_strings(name_string, "sem1_", name), O_CREAT, 0666, 1);
+    if (queue->sem[0] == SEM_FAILED)
     {
         perror("sem_open");
         exit(EXIT_FAILURE);
     }
-    queue->sem2 = sem_open(concat_strings(name_string, "sem2_", name), O_CREAT, 0666, 1);
-    if (queue->sem2 == SEM_FAILED)
+    queue->sem[1] = sem_open(concat_strings(name_string, "sem2_", name), O_CREAT, 0666, 1);
+    if (queue->sem[1] == SEM_FAILED)
     {
         perror("sem_open");
         exit(EXIT_FAILURE);
     }
 
-    queue->bucket1 = get_data_segment(concat_strings(name_string, "bucket1_", name), BUCKET_SIZE);
-    queue->bucket2 = get_data_segment(concat_strings(name_string, "bucket2_", name), BUCKET_SIZE);
+    queue->data_seg[0] = get_data_segment(concat_strings(name_string, "bucket1_", name), BUCKET_SIZE);
+    queue->data_seg[1] = get_data_segment(concat_strings(name_string, "bucket2_", name), BUCKET_SIZE);
 
     queue->header.bucket_capacity = BUCKET_SIZE;
     queue->header.bucket_to_read = 1;
-    queue->header.bucket1_front = queue->header.bucket2_front = 0;
-    queue->header.bucket1_rear = queue->header.bucket2_rear = 0;
-    queue->header.bucket1_size = queue->header.bucket2_size = 0;
+    queue->header.data_seg_front[0] = queue->header.data_seg_front[1] = 0;
+    queue->header.data_seg_rear[0] = queue->header.data_seg_rear[1] = 0;
+    queue->header.data_seg_size[0] = queue->header.data_seg_size[1] = 0;
 
     free(name_string);
 
@@ -113,22 +110,22 @@ struct Queue *get_queue(const char *name)
         exit(EXIT_FAILURE);
     }
 
-    queue->sem1 = sem_open(concat_strings(name_string, "sem1_", name), 0);
-    if (queue->sem1 == SEM_FAILED)
+    queue->sem[0] = sem_open(concat_strings(name_string, "sem1_", name), 0);
+    if (queue->sem[0] == SEM_FAILED)
     {
         perror("sem_open");
         exit(EXIT_FAILURE);
     }
 
-    queue->sem2 = sem_open(concat_strings(name_string, "sem2_", name), 0);
-    if (queue->sem2 == SEM_FAILED)
+    queue->sem[1] = sem_open(concat_strings(name_string, "sem2_", name), 0);
+    if (queue->sem[1] == SEM_FAILED)
     {
         perror("sem_open");
         exit(EXIT_FAILURE);
     }
 
-    queue->bucket1 = get_data_segment(concat_strings(name_string, "bucket1_", name), BUCKET_SIZE);
-    queue->bucket2 = get_data_segment(concat_strings(name_string, "bucket2_", name), BUCKET_SIZE);
+    queue->data_seg[0] = get_data_segment(concat_strings(name_string, "bucket1_", name), BUCKET_SIZE);
+    queue->data_seg[1] = get_data_segment(concat_strings(name_string, "bucket2_", name), BUCKET_SIZE);
 
     free(name_string);
 
@@ -167,14 +164,14 @@ void enqueue(struct Queue *queue, void *item, size_t mem_size)
 {
     if (queue->header.bucket_to_read == 1)
     {
-        if (queue->header.bucket2_size && (queue->header.bucket2_front == queue->header.bucket2_rear))
+        if (queue->header.data_seg_size[1] && (queue->header.data_seg_front[1] == queue->header.data_seg_rear[1]))
         {
             //SEMAPHORE IN ACTION  [is full] -> [wait for swap in dequeue]
         }
     }
     else
     {
-        if (queue->header.bucket1_size && (queue->header.bucket1_front == queue->header.bucket1_rear))
+        if (queue->header.data_seg_size[0] && (queue->header.data_seg_front[0] == queue->header.data_seg_rear[0]))
         {
             //SEMAPHORE IN ACTION
         }
@@ -182,19 +179,19 @@ void enqueue(struct Queue *queue, void *item, size_t mem_size)
 
     if (queue->header.bucket_to_read == 1)
     {
-        sem_wait(queue->sem2);
-        memcpy(queue->bucket2 + queue->header.bucket2_rear, item, mem_size);
-        queue->header.bucket2_rear = (queue->header.bucket2_rear + MEM_CHUNK) % queue->header.bucket_capacity;
-        queue->header.bucket2_size++;
-        sem_post(queue->sem2);
+        sem_wait(queue->sem[1]);
+        memcpy(queue->data_seg[1] + queue->header.data_seg_rear[1], item, mem_size);
+        queue->header.data_seg_rear[1] = (queue->header.data_seg_rear[1] + MEM_CHUNK) % queue->header.bucket_capacity;
+        queue->header.data_seg_size[1]++;
+        sem_post(queue->sem[1]);
     }
     else
     {
-        sem_wait(queue->sem1);
-        memcpy(queue->bucket1 + queue->header.bucket1_rear, item, mem_size);
-        queue->header.bucket1_rear = (queue->header.bucket1_rear + MEM_CHUNK) % queue->header.bucket_capacity;
-        queue->header.bucket1_size++;
-        sem_post(queue->sem1);
+        sem_wait(queue->sem[0]);
+        memcpy(queue->data_seg[0] + queue->header.data_seg_rear[0], item, mem_size);
+        queue->header.data_seg_rear[0] = (queue->header.data_seg_rear[0] + MEM_CHUNK) % queue->header.bucket_capacity;
+        queue->header.data_seg_size[0]++;
+        sem_post(queue->sem[0]);
     }
 }
 
@@ -202,32 +199,32 @@ void *dequeue(struct Queue *queue)
 {
     void *ptr;
 
-    if (!queue->header.bucket1_size && !queue->header.bucket2_size)
+    if (!queue->header.data_seg_size[0] && !queue->header.data_seg_size[1])
     {
         printf("Queue is empty!");
         exit(EXIT_FAILURE);
     }
 
-    if (queue->header.bucket_to_read == 1 && !queue->header.bucket1_size)
+    if (queue->header.bucket_to_read == 1 && !queue->header.data_seg_size[0])
         queue->header.bucket_to_read = 2;
-    else if (queue->header.bucket_to_read == 2 && !queue->header.bucket2_size)
+    else if (queue->header.bucket_to_read == 2 && !queue->header.data_seg_size[1])
         queue->header.bucket_to_read = 1;
 
     if (queue->header.bucket_to_read == 1)
     {
-        sem_wait(queue->sem1);
-        ptr = queue->bucket1 + queue->header.bucket1_front;
-        queue->header.bucket1_front = (queue->header.bucket1_front + MEM_CHUNK) % queue->header.bucket_capacity;
-        queue->header.bucket1_size--;
-        sem_post(queue->sem1);
+        sem_wait(queue->sem[0]);
+        ptr = queue->data_seg[0] + queue->header.data_seg_front[0];
+        queue->header.data_seg_front[0] = (queue->header.data_seg_front[0] + MEM_CHUNK) % queue->header.bucket_capacity;
+        queue->header.data_seg_size[0]--;
+        sem_post(queue->sem[0]);
     }
     else
     {
-        sem_wait(queue->sem2);
-        ptr = queue->bucket2 + queue->header.bucket2_front;
-        queue->header.bucket2_front = (queue->header.bucket2_front + MEM_CHUNK) % queue->header.bucket_capacity;
-        queue->header.bucket2_size--;
-        sem_post(queue->sem2);
+        sem_wait(queue->sem[1]);
+        ptr = queue->data_seg[1] + queue->header.data_seg_front[1];
+        queue->header.data_seg_front[1] = (queue->header.data_seg_front[1] + MEM_CHUNK) % queue->header.bucket_capacity;
+        queue->header.data_seg_size[1]--;
+        sem_post(queue->sem[1]);
     }
 
     return ptr;
@@ -251,13 +248,13 @@ void rm_queue(const char *name)
 
     if (sem_unlink(concat_strings(name_string, "sem1_", name)) == -1)
     {
-        perror("sem_close");
+        perror("sem_unlink");
         exit(EXIT_FAILURE);
     }
 
     if (sem_unlink(concat_strings(name_string, "sem2_", name)) == -1)
     {
-        perror("sem_close");
+        perror("sem_unlink");
         exit(EXIT_FAILURE);
     }
 
