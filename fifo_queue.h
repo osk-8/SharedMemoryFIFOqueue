@@ -9,11 +9,11 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 
-struct Queue *create_queue(unsigned int proj_id, const int number_of_elements, const size_t element_size);
-struct Queue *get_queue(unsigned int proj_id);
+struct Queue *create_queue(const unsigned int proj_id, const int number_of_elements, const size_t element_size);
+struct Queue *get_queue(const unsigned int proj_id);
 void enqueue(struct Queue *queue, void *item, size_t mem_size);
 void *dequeue(struct Queue *queue);
-void close_queue(struct Queue *queue);
+void close_queue(const struct Queue *queue);
 
 struct Queue
 {

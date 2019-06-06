@@ -1,16 +1,10 @@
 #include "fifo_queue.h"
 
-struct Queue *create_queue(unsigned int proj_id, const int number_of_elements, const size_t element_size)
+struct Queue *create_queue(const unsigned int proj_id, const int number_of_elements, const size_t element_size)
 {
-    key_t key;
     int shmid;
     struct Queue *ptr_queue;
 
-    key = ftok("/home/osk/Projects/SharedMemoryFIFOqueue/fifo_queue.h", proj_id);
-    if (key == -1)
-    {
-        perror("queue ftok");
-    }
     shmid = shmget(proj_id, sizeof(struct Queue), 0666 | IPC_CREAT);
     if (shmid == -1)
     {
@@ -23,32 +17,16 @@ struct Queue *create_queue(unsigned int proj_id, const int number_of_elements, c
         exit(EXIT_FAILURE);
     }
 
-    key = ftok("/home/osk/Projects/SharedMemoryFIFOqueue/fifo_queue.h", proj_id + 1);
-    if (key == -1)
-    {
-        perror("seg1 ftok");
-    }
     ptr_queue->seg_id[0] = shmget(proj_id + 1, number_of_elements * element_size, 0666 | IPC_CREAT);
     if (shmid == -1)
     {
         perror("seg1 shmid");
     }
 
-    key = ftok("/home/osk/Projects/SharedMemoryFIFOqueue/fifo_queue.h", proj_id + 2);
-    if (key == -1)
-    {
-        perror("seg2 ftok");
-    }
     ptr_queue->seg_id[1] = shmget(proj_id + 2, number_of_elements * element_size, 0666 | IPC_CREAT);
     if (shmid == -1)
     {
         perror("seg2 shmid");
-    }
-
-    key = ftok("/home/osk/Projects/SharedMemoryFIFOqueue/fifo_queue.h", proj_id + 3);
-    if (key == -1)
-    {
-        perror("sem ftok");
     }
 
     ptr_queue->sem_id = semget(proj_id + 3, 2, 0666 | IPC_CREAT);
@@ -80,17 +58,11 @@ struct Queue *create_queue(unsigned int proj_id, const int number_of_elements, c
     return ptr_queue;
 }
 
-struct Queue *get_queue(unsigned int proj_id)
+struct Queue *get_queue(const unsigned int proj_id)
 {
-    key_t key;
     int shmid;
     struct Queue *ptr_queue;
 
-    key = ftok("/home/osk/Projects/SharedMemoryFIFOqueue/fifo_queue.h", proj_id);
-    if (key == -1)
-    {
-        perror("queue ftok");
-    }
     shmid = shmget(proj_id, sizeof(struct Queue), 0);
     if (shmid == 0)
     {
@@ -144,7 +116,6 @@ void enqueue(struct Queue *queue, void *item, size_t mem_size)
 
 void *dequeue(struct Queue *queue)
 {
-    int status;
     struct sembuf operation[2];
     operation[0].sem_num = 0;
     operation[0].sem_op = 1;
@@ -153,6 +124,7 @@ void *dequeue(struct Queue *queue)
     operation[1].sem_op = -1;
     operation[1].sem_flg = 0;
 
+    int status;
     if (!queue->header.data_seg_size[queue->header.seg_to_read])
     {
         status = semop(queue->sem_id, &operation[1], 1);
@@ -190,7 +162,7 @@ void *dequeue(struct Queue *queue)
     return ptr;
 }
 
-void close_queue(struct Queue *queue)
+void close_queue(const struct Queue *queue)
 {
     if (shmctl(queue->seg_id[0], IPC_RMID, NULL) == -1)
     {
