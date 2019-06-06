@@ -9,253 +9,248 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <semaphore.h>
+#include <sys/sem.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 
-struct Queue *create_queue(const char *name, const int number_of_elements, const size_t element_size);
-struct Queue *get_queue(const char *name);
-void *get_data_segment(const char *name, const size_t size);
+struct Queue *create_queue(unsigned int proj_id, const int number_of_elements, const size_t element_size); //maybe get_queue with flags
+struct Queue *get_queue(unsigned int proj_id);
 void enqueue(struct Queue *queue, void *item, size_t mem_size);
 void *dequeue(struct Queue *queue);
-void close_queue(const char *name);
-
-//support
-char *concat_strings(char *dest, const char *a, const char *b);
+void close_queue(struct Queue *queue);
 
 struct Queue
 {
     struct
     {
+        int shm_id;
+        size_t data_seg_capacity;
+        size_t element_size;
+        int data_seg_front[2];
+        int data_seg_rear[2];
+        size_t data_seg_size[2];
+
         enum
         {
             first_segment,
             second_segment
         } seg_to_read;
-
-        size_t data_seq_capacity;
-        size_t element_size;
-        int data_seg_front[2];
-        int data_seg_rear[2];
-        size_t data_seg_size[2];
     } header;
 
-    // sem_t *sem[2];
-    // void *data_seg[2];
+    int sem_id;
+    int seg_id[2];
 };
 
-struct Queue *create_queue(const char *name, const int number_of_elements, const size_t element_size)
+struct Queue *create_queue(unsigned int proj_id, const int number_of_elements, const size_t element_size)
 {
-    int shm_fd;
-    struct Queue *queue;
-    char *name_string = malloc(sizeof(char) * 100);
+    key_t key;
+    int shmid;
+    struct Queue *ptr_queue;
 
-    shm_fd = shm_open(name, O_CREAT | O_EXCL | O_RDWR, 0666);
-    if (shm_fd == -1)
+    key = ftok("/home/osk/Projects/SharedMemoryFIFOqueue/fifo_queue.h", proj_id);
+    if (key == -1)
     {
-        perror("shm_open");
+        perror("queue ftok");
+    }
+    shmid = shmget(proj_id, sizeof(struct Queue), 0666 | IPC_CREAT);
+    if (shmid == -1)
+    {
+        perror("queue shmid");
+    }
+    ptr_queue = (struct Queue *)shmat(shmid, (void *)0, 0);
+    if (ptr_queue == (struct Queue *)(-1))
+    {
+        perror("queue shmid");
         exit(EXIT_FAILURE);
     }
 
-    if (ftruncate(shm_fd, sizeof(struct Queue)) == -1)
+    key = ftok("/home/osk/Projects/SharedMemoryFIFOqueue/fifo_queue.h", proj_id + 1);
+    if (key == -1)
     {
-        perror("ftruncate");
-        exit(EXIT_FAILURE);
+        perror("seg1 ftok");
+    }
+    ptr_queue->seg_id[0] = shmget(proj_id + 1, number_of_elements * element_size, 0666 | IPC_CREAT);
+    if (shmid == -1)
+    {
+        perror("seg1 shmid");
     }
 
-    queue = mmap(0, sizeof(struct Queue), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (queue == (struct Queue *)(-1))
+    key = ftok("/home/osk/Projects/SharedMemoryFIFOqueue/fifo_queue.h", proj_id + 2);
+    if (key == -1)
     {
-        perror("mmap");
-        exit(EXIT_FAILURE);
+        perror("seg2 ftok");
+    }
+    ptr_queue->seg_id[1] = shmget(proj_id + 2, number_of_elements * element_size, 0666 | IPC_CREAT);
+    if (shmid == -1)
+    {
+        perror("seg2 shmid");
     }
 
-    // queue->sem[0] = sem_open("producer", O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP, number_of_elements);
-    // if (queue->sem[0] == SEM_FAILED)
-    // {
-    //     perror("sem_open");
-    //     exit(EXIT_FAILURE);
-    // }
+    key = ftok("/home/osk/Projects/SharedMemoryFIFOqueue/fifo_queue.h", proj_id + 3);
+    if (key == -1)
+    {
+        perror("sem ftok");
+    }
 
-    // queue->sem[1] = sem_open("consumer", O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP, 0);
-    // if (queue->sem[1] == SEM_FAILED)
-    // {
-    //     perror("sem_open");
-    //     exit(EXIT_FAILURE);
-    // }
+    ptr_queue->sem_id = semget(proj_id + 3, 2, 0666 | IPC_CREAT);
+    if (shmid == -1)
+    {
+        perror("sem shmid");
+    }
 
-    sem_open("producer", O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP, number_of_elements);
-    sem_open("consumer", O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP, 0);
+    int status = semctl(ptr_queue->sem_id, 0, SETVAL, number_of_elements);
+    if (status == -1)
+    {
+        perror("sem1 semctl");
+    }
 
-    // queue->data_seg[0] = get_data_segment(concat_strings(name_string, "bucket1_", name), number_of_elements * element_size);
-    // queue->data_seg[1] = get_data_segment(concat_strings(name_string, "bucket2_", name), number_of_elements * element_size);
-    get_data_segment("seg1", number_of_elements * element_size);
-    get_data_segment("seg1", number_of_elements * element_size);
+    status = semctl(ptr_queue->sem_id, 1, SETVAL, 0);
+    if (status == -1)
+    {
+        perror("sem2 semctl");
+    }
 
-    queue->header.data_seq_capacity = number_of_elements * element_size;
-    queue->header.element_size = element_size;
-    queue->header.seg_to_read = first_segment;
-    queue->header.data_seg_front[0] = queue->header.data_seg_front[1] = 0;
-    queue->header.data_seg_rear[0] = queue->header.data_seg_rear[1] = 0;
-    queue->header.data_seg_size[0] = queue->header.data_seg_size[1] = 0;
+    ptr_queue->header.shm_id = shmid;
+    ptr_queue->header.data_seg_capacity = number_of_elements * element_size;
+    ptr_queue->header.element_size = element_size;
+    ptr_queue->header.seg_to_read = first_segment;
+    ptr_queue->header.data_seg_front[0] = ptr_queue->header.data_seg_front[1] = 0;
+    ptr_queue->header.data_seg_rear[0] = ptr_queue->header.data_seg_rear[1] = 0;
+    ptr_queue->header.data_seg_size[0] = ptr_queue->header.data_seg_size[1] = 0;
 
-    free(name_string);
-
-    return queue;
+    return ptr_queue;
 }
 
-struct Queue *get_queue(const char *name)
+struct Queue *get_queue(unsigned int proj_id)
 {
-    int shm_fd;
-    struct Queue *queue;
-    char *name_string = malloc(sizeof(char) * 100);
+    key_t key;
+    int shmid;
+    struct Queue *ptr_queue;
 
-    shm_fd = shm_open(name, O_RDWR, 0666);
-    if (shm_fd == -1)
+    key = ftok("/home/osk/Projects/SharedMemoryFIFOqueue/fifo_queue.h", proj_id);
+    if (key == -1)
     {
-        perror("shm_open");
+        perror("queue ftok");
+    }
+    shmid = shmget(proj_id, sizeof(struct Queue), 0);
+    if (shmid == 0)
+    {
+        perror("queue shmget");
+    }
+    ptr_queue = shmat(shmid, (void *)0, 0);
+    if (ptr_queue == (struct Queue *)(-1))
+    {
+        perror("queue shmat");
         exit(EXIT_FAILURE);
     }
 
-    if (ftruncate(shm_fd, sizeof(struct Queue)) == -1)
-    {
-        perror("ftruncate");
-        exit(EXIT_FAILURE);
-    }
-
-    queue = mmap(0, sizeof(struct Queue), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (queue == (struct Queue *)(-1))
-    {
-        perror("mmap");
-        exit(EXIT_FAILURE);
-    }
-
-    free(name_string);
-
-    return queue;
-}
-
-void *get_data_segment(const char *name, const size_t size)
-{
-    int shm_fd;
-    void *data;
-
-    shm_fd = shm_open(name, O_CREAT | O_RDWR, 0666);
-    if (shm_fd == -1)
-    {
-        perror("shm_open");
-        exit(EXIT_FAILURE);
-    }
-
-    if (ftruncate(shm_fd, size) == -1)
-    {
-        perror("ftruncate");
-        exit(EXIT_FAILURE);
-    }
-
-    data = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (data == (void *)(-1))
-    {
-        perror("mmap");
-        exit(EXIT_FAILURE);
-    }
-
-    return data;
+    return ptr_queue;
 }
 
 void enqueue(struct Queue *queue, void *item, size_t mem_size)
 {
-    sem_t *sem[2];
-    sem[0] = sem_open("producer", 0);
-    sem[1] = sem_open("consumer", 0);
+    struct sembuf operation[2];
+    operation[0].sem_num = 0;
+    operation[0].sem_op = -1;
+    operation[0].sem_flg = 0;
+    operation[1].sem_num = 1;
+    operation[1].sem_op = 1;
+    operation[1].sem_flg = 0;
 
-    sem_wait(sem[0]);
-    void *seg[2];
-    seg[0] = get_data_segment("seg1", queue->header.data_seq_capacity);
-    seg[1] = get_data_segment("seg2", queue->header.data_seq_capacity);
+    int status = semop(queue->sem_id, &operation[0], 1);
+    if (status < 0)
+    {
+        perror("can not semctl");
+    }
 
     int index = !queue->header.seg_to_read;
-    printf("Write to segment: %d\n", index);
 
-    memcpy(seg[index] + queue->header.data_seg_rear[index], item, mem_size);
-    queue->header.data_seg_rear[index] = (queue->header.data_seg_rear[index] + queue->header.element_size) % queue->header.data_seq_capacity;
+    void *data_seg = shmat(queue->seg_id[index], (void *)0, 0);
+    if (data_seg == (void *)(-1))
+    {
+        perror("seg shmat");
+        exit(EXIT_FAILURE);
+    }
+
+    memcpy(data_seg + queue->header.data_seg_rear[index], item, mem_size);
+    queue->header.data_seg_rear[index] = (queue->header.data_seg_rear[index] + queue->header.element_size) % queue->header.data_seg_capacity;
     queue->header.data_seg_size[index]++;
 
-    sem_post(sem[1]);
+    status = semop(queue->sem_id, &operation[1], 1);
+    if (status < 0)
+    {
+        perror("can not semctl");
+    }
 }
 
 void *dequeue(struct Queue *queue)
 {
-    sem_t *sem[2];
-    sem[0] = sem_open("producer", 0);
-    sem[1] = sem_open("consumer", 0);
-
-    void *seg[2];
-    seg[0] = get_data_segment("seg1", queue->header.data_seq_capacity);
-    seg[1] = get_data_segment("seg2", queue->header.data_seq_capacity);
-
-    void *ptr;
+    int status;
+    struct sembuf operation[2];
+    operation[0].sem_num = 0;
+    operation[0].sem_op = 1;
+    operation[0].sem_flg = 0;
+    operation[1].sem_num = 1;
+    operation[1].sem_op = -1;
+    operation[1].sem_flg = 0;
 
     if (!queue->header.data_seg_size[queue->header.seg_to_read])
     {
-        sem_wait(sem[1]);
+        status = semop(queue->sem_id, &operation[1], 1);
         queue->header.seg_to_read = !queue->header.seg_to_read;
     }
     else
     {
-        sem_wait(sem[1]);
+        status = semop(queue->sem_id, &operation[1], 1);
+    }
+
+    if (status < 0)
+    {
+        perror("can not semctl");
     }
 
     int index = queue->header.seg_to_read;
-    printf("Read from segmen: %d\n", index);
 
-    ptr = seg[index] + queue->header.data_seg_front[index];
-    queue->header.data_seg_front[index] = (queue->header.data_seg_front[index] + queue->header.element_size) % queue->header.data_seq_capacity;
+    void *data_seg = shmat(queue->seg_id[index], (void *)0, 0);
+    if (data_seg == (void *)(-1))
+    {
+        perror("seg shmat");
+        exit(EXIT_FAILURE);
+    }
+
+    void *ptr = data_seg + queue->header.data_seg_front[index];
+    queue->header.data_seg_front[index] = (queue->header.data_seg_front[index] + queue->header.element_size) % queue->header.data_seg_capacity;
     queue->header.data_seg_size[index]--;
 
-    sem_post(sem[0]);
+    status = semop(queue->sem_id, &operation[0], 1);
+    if (status < 0)
+    {
+        perror("can not semctl");
+    }
 
     return ptr;
 }
 
-void close_queue(const char *name)
+void close_queue(struct Queue *queue)
 {
-    char *name_string = malloc(sizeof(char) * 100);
-
-    if (shm_unlink("seg1") == -1)
+    if (shmctl(queue->seg_id[0], IPC_RMID, NULL) == -1)
     {
-        perror("shm_unlink");
-        exit(EXIT_FAILURE);
+        perror("seg1) semctl");
     }
 
-    if (shm_unlink("seg2") == -1)
+    if (shmctl(queue->seg_id[1], IPC_RMID, NULL) == -1)
     {
-        perror("shm_unlink");
-        exit(EXIT_FAILURE);
+        perror("seg2) semctl");
     }
 
-    if (sem_unlink("producer") == -1)
+    if (semctl(queue->sem_id, 0, IPC_RMID) == -1)
     {
-        perror("sem_unlink");
-        exit(EXIT_FAILURE);
+        perror("semctl");
     }
 
-    if (sem_unlink("consumer") == -1)
+    if (shmctl(queue->header.shm_id, IPC_RMID, NULL) == -1)
     {
-        perror("sem_unlink  ");
+        perror("queue) semctl");
         exit(EXIT_FAILURE);
     }
-
-    if (shm_unlink(name) == -1)
-    {
-        perror("shm_unlink");
-        exit(EXIT_FAILURE);
-    }
-
-    free(name_string);
-}
-
-char *concat_strings(char *dest, const char *a, const char *b)
-{
-    strcpy(dest, a);
-    strcat(dest, b);
-
-    return dest;
 }

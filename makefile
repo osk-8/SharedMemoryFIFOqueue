@@ -1,4 +1,4 @@
-TARGET = main
+TARGET = test_producent
 LIBS = -lrt -pthread
 CC = gcc
 CFLAGS = -g -Wall

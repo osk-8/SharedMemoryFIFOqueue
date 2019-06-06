@@ -8,12 +8,12 @@
 
 int main()
 {
-    struct Queue *queue = create_queue("my_queue", 10, 24);
+    struct Queue *queue = create_queue(77, 10, 24);
 
     while (1)
     {
         getchar();
-        enqueue(queue, "LOL", sizeof(char) * 6);
+        enqueue(queue, "TEST", sizeof(char) * 24);
     }
 
     exit(EXIT_SUCCESS);
